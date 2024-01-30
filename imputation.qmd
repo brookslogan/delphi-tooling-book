@@ -1,0 +1,780 @@
+# Imputation
+
+
+Need row-adding (test only) and column-adding (training analogues) variants?
+
+```{r}
+# TODO appropriate patterns
+make_new_lag_linear_combination = function(coef_tbl) {
+  result = list(coef_tbl = coef_tbl)
+  class(result) <- "lag_linear_combination"
+  result
+}
+# XXX vs. just something to represent a generic slide computation?
+
+# FIXME should instead be a collection of linear combinations so that they can be applied simultaneously with less overhead
+
+apply_lag_linear_combination = function(edf, lag_linear_combination, ref_time_value) {
+
+}
+
+# XXX epi_slide-based vs. custom vs. custom w/ some sort of matrix impl? vs. some sort of join? vs. complete & ...? vs. a higher-order function approach?
+```
+
+dt -1:-2
+coef 0.5 0.5
+... not for the neighbor imputation which crosses counties... plus treating all these different imputations as same in geo pooling doesn't sound right
+
+
+
+
+
+
+
+
+t 1:4
+v 1:4
+
+
+```{r}
+
+library(dplyr)
+library(epidatr)
+library(epiprocess)
+
+# analysis_date <- as.Date("2023-01-03")
+analysis_date <- as.Date("2024-01-11")
+stable_as_of_date <- analysis_date - 2L
+
+ca_facilities_tbl <- pub_covid_hosp_facility_lookup(state = "ca")
+
+selected_facilities <-
+  withr::with_rng_version("3.5.0", {
+    withr::with_seed(1615517088L, {
+      sample(ca_facilities_tbl$hospital_pk, 6L)
+    })
+  })
+
+test <-
+  pub_covid_hosp_facility(
+    ## hospital_pks = ca_facilities_tbl$hospital_pk[[1L]],
+    hospital_pks = selected_facilities,
+    collection_weeks = epirange(12340101, 34560101),
+    publication_dates = epirange(12340101, 34560101),
+    fetch_args = fetch_args_list(
+      fields = c(
+        "hospital_pk", "state", "fips_code", "collection_week", "publication_date",
+        "previous_day_admission_influenza_confirmed_7_day_sum" # no associated coverage stat?
+      ),
+      timeout_seconds = 30L
+    )
+  )
+
+nrow(test)
+
+test_archive <- test %>%
+  rename(geo_value = hospital_pk, time_value = collection_week, version = publication_date) %>%
+  as_epi_archive(compactify = TRUE)
+
+nrow(test_archive$DT)
+
+test_archive$DT %>%
+  slice_max(version - time_value) %>%
+  {
+    selection = .[, list(geo_value, time_value)]
+    test_archive$DT[selection]
+  }
+# double check:
+test_archive$DT[geo_value == "051332" & time_value == as.Date("2020-03-22")]
+
+print(test_archive$DT[geo_value == "051332", list(time_value, version, value = previous_day_admission_influenza_confirmed_7_day_sum)], topn = 100)
+# this was part of a 2023-06-26 fill-in for the new collection week definition
+
+test_archive$DT[, list(geo_value, time_value, version, value = previous_day_admission_influenza_confirmed_7_day_sum)][, value := if_else(is.na(value), -2, if_else(value == -999999, -1, value))] %>%
+  ggplot(aes(time_value, value, colour = version)) %>%
+  `+`(facet_wrap(~ geo_value)) %>%
+  `+`(geom_point())
+
+test_archive$DT[, list(n_versions = .N), by = list(geo_value, time_value)][, .N, by = n_versions]
+
+test_archive$DT %>%
+  group_by(geo_value, time_value) %>%
+  slice(if (n() == 1L) integer(0L) else 2:n()) %>%
+  mutate(lag = version - time_value) %>%
+  ungroup() %>%
+  slice_max(lag)
+
+test_archive$DT[geo_value == "050674" & time_value == as.Date("2020-03-29")]
+```
+
+censoring is of [1..3] rather than [0..3] ?
+
+
+..... not daily.  Need to find daily facility data set or think about different imputation/completion approaches.
+
+
+
+```{r}
+library(ggplot2)
+library(plotly)
+
+test %>%
+  ggplot(aes(collection_week, previous_day_admission_influenza_confirmed_7_day_sum, colour = publication_date)) %>%
+  `+`(geom_line()) %>%
+  `+`(facet_wrap(~ hospital_pk))
+
+```
+
+
+```{r}
+
+
+test2 <-
+  pub_covid_hosp_facility(
+    hospital_pks = ca_facilities_tbl$hospital_pk,
+    collection_weeks = epirange(12340101, 34560101),
+    fetch_args = fetch_args_list(
+      fields = c(
+        "hospital_pk", "state", "fips_code", "collection_week", "publication_date",
+        "previous_day_admission_influenza_confirmed_7_day_sum" # no associated coverage stat?
+      ),
+      timeout_seconds = 300L
+    )
+  )
+
+```
+
+
+```{r}
+?RSocrata::read.socrata
+
+
+RSocrata::read.socrata("https://soda.demo.socrata.com/resource/4tka-6guv.json?$where=magnitude%20%3E%203.0&$select=source,earthquake_id")
+
+
+library(readr)
+
+read_csv("https://healthdata.gov/resource/qqte-vkut.csv?$query=SELECT%20update_date%2C%20archive_link%20ORDER%20BY%20update_date%20DESC%20LIMIT%202000")
+
+RSocrata::read.socrata("https://healthdata.gov/resource/qqte-vkut.json?$query=SELECT%20update_date%2C%20archive_link%20ORDER%20BY%20update_date%20DESC%20LIMIT%202000")
+
+
+
+asdf <-
+  httr::GET(
+          "https://healthdata.gov/resource/anag-cw7u.csv",
+          query = list(
+            ## "$query" = 'SELECT hospital_pk, state, fips_code, collection_week, publication_date WHERE hospital_pk="051332"'
+            "$where" = 'hospital_pk="051332"'
+          )
+        )
+
+read_csv(I(asdf$content)) %>%
+  colnames()
+
+
+system.time(
+  whole <-
+    httr::GET(
+            "https://healthdata.gov/resource/anag-cw7u.csv"
+          )
+)
+whole$status_code == 200L
+#  user  system elapsed 
+# 0.049   0.002   0.578 
+object.size(whole$content)
+
+system.time(
+  select_columns <-
+    httr::GET(
+            "https://healthdata.gov/resource/anag-cw7u.csv",
+            query = list(
+              "$select" = "hospital_pk, state, fips_code, collection_week"
+            )
+          )
+)
+select_columns$status_code == 200L
+#  user  system elapsed 
+# 0.008   0.000   0.169 
+object.size(select_columns$content)
+
+system.time(
+  select_where <-
+    httr::GET(
+            "https://healthdata.gov/resource/anag-cw7u.csv",
+            query = list(
+              "$select" = "hospital_pk, state, fips_code, collection_week",
+              "$where" = 'hospital_pk="051332"'
+            )
+          )
+)
+select_where$status_code == 200L
+#  user  system elapsed 
+# 0.007   0.000   0.146 
+object.size(select_where$content)
+
+
+
+
+# FIXME LIMIT
+```
+
+
+ratio approaches... based on wday * week patterns or neighbor * time patterns? or ...
+
+
+https://healthdata.gov/stories/s/nhgk-5gpv  ... non-raw vs raw? raw at least has archive https://healthdata.gov/dataset/COVID-19-Reported-Patient-Impact-and-Hospital-Capa/t7zc-4t6g ; should re-check non-raw
+
+non-raw maybe does have archive https://healthdata.gov/d/j4ip-wfsv
+
+perhaps was looking at cdc.data.gov county-level when saw no archive?  not sure
+
+
+
+
+
+low-data censoring also needs dealt with....
+
+
+```{r}
+
+test_archive$DT[, .(version_wdaystr = format(version, "%a"))][, .N, by = version_wdaystr]
+test_archive$DT[, min(version)]
+
+```
+
+```{r}
+# At time of writing, epidatr doesn't handle caching of hosp facility data, and
+# API doesn't have compactified issues. We'll do our own caching, and, to cut
+# down on downloading, pretend that things are finalized after 60 days, except
+# maybe to deal with the week redefinition.
+
+analysis_date <- as.Date("2024-01-11")
+stable_as_of <- analysis_date - 2L
+
+# At least at state level, more regular reporting started around version
+# 2021-09-21, with version 2021-09-21 a little different as well. So we'll start
+# with the following version:
+start_publication_date <- as.Date("2021-09-22")
+end_publication_date <- stable_as_of
+stopifnot(start_publication_date < end_publication_date)
+
+max_lag = 120L
+
+request_fields <- c(
+  "hospital_pk", "state", "fips_code", "collection_week", "publication_date",
+  "previous_day_admission_influenza_confirmed_7_day_sum" # no associated coverage stat?
+)
+
+cache <- cachem::cache_disk(dir = "imputation_facility_cache", max_size = 1 * 1024^3)
+# XXX is this facility-list-change-proof? not to removals, but maybe those won't happen
+
+# Normally to limit to versions >= some start version, we'd do an as_of query
+# for the start version and an issues query for the rest (for efficiency). But
+# for this endpoint, there are only sort of as_of queries (as_of queries except
+# when querying on publication dates with no publication), so we'll use them for
+# everything.
+
+
+publication_dates <- seq(start_publication_date, end_publication_date, by="day")
+chunks <- publication_dates %>%
+  lapply(function(publication_date) {
+    print(publication_date)
+    cache_key <- format(publication_date, "publication_date_%Y%m%d")
+    cache_chunk <- cache$get(cache_key)
+    if (!cachem::is.key_missing(cache_chunk)) {
+      chunk <- cache_chunk
+    } else {
+      print(system.time(
+        chunk <-
+          pub_covid_hosp_facility(
+            hospital_pks = ca_facilities_tbl$hospital_pk,
+            collection_weeks = epirange(publication_date - max_lag, publication_date),
+            publication_dates = publication_date,
+            fetch_args = fetch_args_list(
+              fields = request_fields,
+              timeout_seconds = 30L
+            )
+          )
+      ))
+      cache$set(cache_key, chunk)
+    }
+    chunk
+  })
+
+archive <- chunks %>%
+  bind_rows() %>%
+  rename(geo_value = hospital_pk, time_value = collection_week, version = publication_date,
+         value = previous_day_admission_influenza_confirmed_7_day_sum) %>%
+  # NOTE we're pretending we don't have to deal with censoring by replacing
+  # -999999 with a fixed value (it appears to be a censoring of values in
+  # [1..3] or some mix of [1..3] and [0..3] rather than [0..3] suggested by
+  # docs; we'll replace it with 2, the average of [1..3])
+  mutate(value = case_match(value, -999999 ~ 2, .default = value)) %>%
+  as_epi_archive(compactify = TRUE)
+
+
+selected_facilities <-
+  withr::with_rng_version("3.5.0", {
+    withr::with_seed(1615517088L, {
+      sample(unique(archive$DT$geo_value), 20L)
+    })
+  })
+
+archive$DT[.(geo_value = selected_facilities)][, value := if_else(is.na(value), -2, value)] %>%
+  ggplot(aes(time_value, value, colour = version, group = time_value)) %>%
+  `+`(facet_wrap(~ geo_value)) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_point())
+
+archive$DT[.(geo_value = selected_facilities)][, value := if_else(is.na(value), -2, value)] %>%
+  ggplot(aes(time_value, value, colour = version, group = time_value)) %>%
+  `+`(facet_wrap(~ geo_value, scales = "free_y")) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_point())
+
+archive$DT[.(geo_value = selected_facilities)][, value := if_else(is.na(value), -2, value)] %>%
+  ggplot(aes(time_value, value, colour = version, group = version)) %>%
+  `+`(facet_wrap(~ geo_value, scales = "free_y")) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_point())
+
+archive$DT[.(geo_value = "050701")][, value := if_else(is.na(value), -2, value)] %>%
+  ggplot(aes(time_value, value, colour = version, group = time_value)) %>%
+  `+`(facet_wrap(~ geo_value)) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_point())
+
+archive$DT[.(geo_value = "053303")][, value := if_else(is.na(value), -2, value)] %>%
+  ggplot(aes(time_value, value, colour = version, group = version)) %>%
+  `+`(facet_wrap(~ geo_value)) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_point())
+```
+
+```{r}
+system.time(
+  lag_stats <-
+    archive %>%
+    epix_slide(before = 365000L, function(edf, gk, version) {
+      edf %>%
+        slice_max(time_value, by = geo_value) %>%
+        mutate(lag = version - time_value, time_value = NULL)
+    }, names_sep = NULL)
+)
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(sd_lag = sd(lag), .by = version) %>%
+#   ggplot(aes(version, sd_lag)) %>%
+#   `+`(geom_line())
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(range_lag = diff(range(lag)), .by = version) %>%
+#   ggplot(aes(version, range_lag)) %>%
+#   `+`(geom_line())
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(iqr_lag = diff(quantile(as.integer(lag), c(0.25, 0.75))), .by = version) %>%
+#   ggplot(aes(version, iqr_lag)) %>%
+#   `+`(geom_line())
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(iqr70_lag = diff(quantile(as.integer(lag), c(0.15, 0.85))), .by = version) %>%
+#   ggplot(aes(version, iqr70_lag)) %>%
+#   `+`(geom_line())
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(iqr80_lag = diff(quantile(as.integer(lag), c(0.10, 0.90))), .by = version) %>%
+#   ggplot(aes(version, iqr80_lag)) %>%
+#   `+`(geom_line())
+
+# lag_stats %>%
+#   rename(version = time_value) %>%
+#   summarize(iqr90_lag = diff(quantile(as.integer(lag), c(0.05, 0.95))), .by = version) %>%
+#   ggplot(aes(version, iqr90_lag)) %>%
+#   `+`(geom_line())
+
+lag_stats %>%
+  rename(version = time_value) %>%
+  summarize(prop_nonmin_lag = mean(lag != min(lag)), .by = version) %>%
+  ggplot(aes(version, prop_nonmin_lag)) %>%
+  `+`(geom_line())
+
+lag_stats %>%
+  rename(version = time_value) %>%
+  summarize(median_nonmin_lag = median(lag[lag != min(lag)]), .by = version) %>%
+  ggplot(aes(version, median_nonmin_lag)) %>%
+  `+`(geom_line())
+
+lag_stats %>%
+  rename(version = time_value) %>%
+  summarize(p80_diff_from_max_lag = quantile(lag - min(lag), 0.80), .by = version) %>%
+  ggplot(aes(version, p80_diff_from_max_lag)) %>%
+  `+`(geom_line())
+
+lag_stats %>%
+  rename(version = time_value) %>%
+  summarize(p90_diff_from_max_lag = quantile(lag - min(lag), 0.90), .by = version) %>%
+  ggplot(aes(version, p90_diff_from_max_lag)) %>%
+  `+`(geom_line())
+
+
+
+```
+
+maybe we are missing recent stuff in the API
+```{r}
+# reprex::reprex({
+library(epidatr)
+library(dplyr)
+
+ca_facilities_tbl <- pub_covid_hosp_facility_lookup(state = "ca")
+
+selected_facilities <-
+  withr::with_rng_version("3.5.0", {
+    withr::with_seed(1615517088L, {
+      sample(ca_facilities_tbl$hospital_pk, 6L)
+    })
+  })
+
+test <-
+  pub_covid_hosp_facility(
+    hospital_pks = selected_facilities,
+    collection_weeks = epirange(12340101, 34560101),
+    fetch_args = fetch_args_list(
+      fields = c(
+        "hospital_pk", "state", "fips_code", "collection_week", "publication_date",
+        "previous_day_admission_influenza_confirmed_7_day_sum" # no associated coverage stat?
+      ),
+      timeout_seconds = 30L
+    )
+  )
+test %>%
+  with(max(publication_date))
+# })
+```
+
+
+
+```{r}
+imputations_via_locf <- function(edf, locf_for_up_to) {
+  unique_time_values <- unique(edf$time_value)
+  max_time_rows <-
+    edf %>%
+    slice_max(time_value, by = geo_value) %>%
+    rename(max_time_value = time_value)
+  imputed_rows <-
+    max_time_rows %>%
+    reframe(
+      .by = geo_value,
+      time_value = unique_time_values[max_time_value < unique_time_values & unique_time_values <= max_time_value + locf_for_up_to],
+      state, fips_code, value
+    )
+  imputed_rows
+}
+
+imputations_via_slocf <- function(edf, locf_for_up_to) {
+  unique_time_values <- unique(edf$time_value)
+  # still use max_time_rows in defining imputation targets:
+  max_time_rows <-
+    edf %>%
+    slice_max(time_value, n = 1L, by = geo_value) %>%
+    rename(max_time_value = time_value)
+  secondish_max_time_rows <-
+    edf %>%
+    slice_max(time_value, n = 2L, by = geo_value) %>%
+    slice_min(time_value, n = 1L, by = geo_value) %>%
+    select(geo_value, value)
+  imputed_rows <-
+    max_time_rows %>%
+    reframe(
+      .by = geo_value,
+      time_value = unique_time_values[max_time_value < unique_time_values & unique_time_values <= max_time_value + locf_for_up_to],
+      state, fips_code
+    ) %>%
+    left_join(secondish_max_time_rows, by = "geo_value")
+  imputed_rows
+}
+
+imputations_via_3locf <- function(edf, locf_for_up_to) {
+  unique_time_values <- unique(edf$time_value)
+  # still use max_time_rows in defining imputation targets:
+  max_time_rows <-
+    edf %>%
+    slice_max(time_value, n = 1L, by = geo_value) %>%
+    rename(max_time_value = time_value)
+  thirdish_max_time_rows <-
+    edf %>%
+    slice_max(time_value, n = 3L, by = geo_value) %>%
+    slice_min(time_value, n = 1L, by = geo_value) %>%
+    select(geo_value, value)
+  imputed_rows <-
+    max_time_rows %>%
+    reframe(
+      .by = geo_value,
+      time_value = unique_time_values[max_time_value < unique_time_values & unique_time_values <= max_time_value + locf_for_up_to],
+      state, fips_code
+    ) %>%
+    left_join(thirdish_max_time_rows, by = "geo_value")
+  imputed_rows
+}
+
+
+imputations_via_crossgeo <- function(edf, locf_for_up_to) {
+  unique_time_values <- unique(edf$time_value)
+  max_time_rows <-
+    edf %>%
+    slice_max(time_value, n = 1L, by = geo_value) %>%
+    rename(max_time_value = time_value)
+  max_unique_time_value = max(unique_time_values)
+  # FIXME won't handle new facilities
+  #
+  # TODO consider by county/...
+  facility_props <-
+    edf %>%
+    filter(
+      max_unique_time_value - locf_for_up_to - 28L <= time_value,
+      time_value <= max_unique_time_value - locf_for_up_to
+    ) %>%
+    # TODO consider filtering to same wday
+    summarize(.by = geo_value, value = sum(value)) %>%
+    mutate(facility_prop = value / sum(value),
+           value = NULL)
+  ca_estimates <- edf %>%
+    left_join(facility_props, by = "geo_value") %>%
+    summarize(ca_estimate = sum(value) / sum(facility_prop), .by = time_value)
+  # ca_estimates %>% ggplot(aes(time_value, ca_estimate)) %>% `+`(geom_line()) %>%
+  # `+`(geom_line(aes(y = value), facilities_truth_edf %>% summarize(.by = time_value, value = sum(value)), colour = "red", linetype = "dashed")) %>%
+  # `+`(geom_line(aes(y = value), edf %>% summarize(.by = time_value, value = sum(value)), colour = "blue", linetype="42"))
+  imputed_rows <-
+    max_time_rows %>%
+    reframe(
+      .by = geo_value,
+      time_value = unique_time_values[max_time_value < unique_time_values & unique_time_values <= max_time_value + locf_for_up_to],
+      state, fips_code
+    ) %>%
+    left_join(ca_estimates, by = "time_value") %>%
+    left_join(facility_props, by = "geo_value") %>%
+    mutate(value = ca_estimate * facility_prop)
+  # TODO remove some columns
+  imputed_rows
+}
+
+# imputations_via_crossgeo2 <- function(edf, locf_for_up_to) {
+#   unique_time_values <- unique(edf$time_value)
+#   max_time_rows <-
+#     edf %>%
+#     slice_max(time_value, n = 1L, by = geo_value) %>%
+#     rename(max_time_value = time_value)
+#   # consider by county/...
+#   to_impute <- max_time_rows %>%
+#     reframe(
+#       .by = geo_value,
+#       time_value = unique_time_values[max_time_value < unique_time_values & unique_time_values <= max_time_value + locf_for_up_to],
+#       state, fips_code
+#     )
+#   # cross2/cross1 * indiv1
+#   # indiv1/cross1 * cross2
+# }
+
+add_imputations <- function(edf, imputations) {
+  bind_rows(
+    edf %>% mutate(imputed = FALSE),
+    imputations %>% mutate(imputed = TRUE)
+  ) %>%
+    arrange(geo_value, time_value)
+}
+
+facility_locf_for_up_to <- 21L
+
+selected_facilities <-
+  withr::with_rng_version("3.5.0", {
+    withr::with_seed(1615517088L, {
+      sample(ca_facilities_tbl$hospital_pk, 20L)
+    })
+  })
+
+archive %>%
+  epix_as_of(.$versions_end - 100L) %>%
+  add_imputations(imputations_via_locf({.}, facility_locf_for_up_to)) %>%
+  filter(geo_value %in% selected_facilities) %>%
+  ggplot(aes(time_value, value, colour = imputed)) %>%
+  `+`(facet_wrap(~ geo_value)) %>%
+  `+`(geom_point())
+
+facilities_imputations <-
+  archive %>%
+  epix_slide(before = 365000L, function(edf, gk, version) {
+    imputations_via_locf(edf, facility_locf_for_up_to)
+  }, as_list_col = TRUE) %>%
+  rename(version = time_value) %>%
+  unnest(slide_value)
+
+facilities_imputations2 <-
+  archive %>%
+  epix_slide(before = 365000L, function(edf, gk, version) {
+    imputations_via_slocf(edf, facility_locf_for_up_to)
+  }, as_list_col = TRUE) %>%
+  rename(version = time_value) %>%
+  unnest(slide_value)
+
+facilities_imputations3 <-
+  archive %>%
+  epix_slide(before = 365000L, function(edf, gk, version) {
+    imputations_via_crossgeo(edf, facility_locf_for_up_to)
+  }, as_list_col = TRUE) %>%
+  rename(version = time_value) %>%
+  unnest(slide_value)
+
+facilities_imputations4 <-
+  archive %>%
+  epix_slide(before = 365000L, function(edf, gk, version) {
+    imputations_via_3locf(edf, facility_locf_for_up_to)
+  }, as_list_col = TRUE) %>%
+  rename(version = time_value) %>%
+  unnest(slide_value)
+
+# TODO something more versioning-aware than just trying a higher time lag?
+
+facilities_truth_edf <- archive %>%
+  epix_as_of(.$versions_end)
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_truth, (value_imputation - value_truth)/value_truth*100)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+
+
+
+
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+
+inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+imps_list <- list(
+  imp1 = facilities_imputations,
+  imp2 = facilities_imputations2,
+  imp3 = facilities_imputations3,
+  imp4 = facilities_imputations4
+)
+
+library(tidyr)
+
+imps_bound <-
+  imps_list %>%
+  bind_rows(.id = "model")
+
+imps_joined <-
+  imps_list %>%
+  bind_rows(.id = "model") %>%
+  pivot_wider(id_cols = c("version", "geo_value", "time_value"),
+              names_from = c("model"),
+              values_from = value)
+
+imp_sd_norms <-
+  imps_bound %>%
+  group_by(version, geo_value, time_value) %>%
+  summarize(imp_sd_norm = sd(value)/mean(value + 1L), .groups = "drop") %>%
+  arrange(desc(imp_sd_norm))
+
+display_pred <- imp_sd_norms[1L, c("version", "geo_value", "time_value")]
+
+left_join(display_pred[c("geo_value")], facilities_truth_edf, by = c("geo_value")) %>%
+  ggplot(aes(time_value, value)) %>%
+  `+`(geom_line()) %>%
+  `+`(geom_line(
+    colour = "gray",
+    data = archive %>%
+      epix_as_of(display_pred$version) %>%
+      right_join(display_pred[c("geo_value")], by = c("geo_value"))
+  )) %>%
+  `+`(geom_point(
+    aes(colour = model),
+    left_join(display_pred[c("version", "geo_value")], imps_bound, c("version", "geo_value")),
+    # position = position_jitter(0.3*7, 0.3*1)
+    position = position_dodge(0.5*7)
+  )) %>%
+  `+`(geom_vline(linetype = "dotted", xintercept = display_pred$time_value))
+
+archive %>%
+  epix_as_of(display_pred$version) %>%
+  right_join({.} %>% filter(time_value == display_pred$time_value) %>% distinct(geo_value), by = "geo_value") %>%
+  summarize(value = sum(value), .by = time_value) %>%
+  ggplot(aes(time_value, value)) %>%
+  `+`(geom_line())
+
+```
+
+TODO revision-aware
