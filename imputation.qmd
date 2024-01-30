@@ -46,6 +46,8 @@ library(epiprocess)
 analysis_date <- as.Date("2024-01-11")
 stable_as_of_date <- analysis_date - 2L
 
+# FIXME multiple folds?
+
 ca_facilities_tbl <- pub_covid_hosp_facility_lookup(state = "ca")
 
 selected_facilities <-
@@ -644,84 +646,84 @@ facilities_imputations4 <-
 facilities_truth_edf <- archive %>%
   epix_as_of(.$versions_end)
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_truth, (value_imputation - value_truth)/value_truth*100)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
-
-
-
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
-
-inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
-
-inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_truth, (value_imputation - value_truth)/value_truth*100)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
 
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
+# inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
-  `+`(geom_point(position = position_jitter(0.1, 0.1)))
-
-
+# inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, value_truth - value_imputation)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
 
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+# inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
-inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
-
-inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
-
-
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
-
-inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
-
-inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+# inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   ggplot(aes(value_imputation, (value_truth - value_imputation)/value_imputation*100)) %>%
+#   `+`(geom_point(position = position_jitter(0.1, 0.1)))
 
 
-inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
 
-inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
 
-inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
 
-inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
-  summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+# inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+# inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+# inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE))
+
+
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+# inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+# inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+
+# inner_join(facilities_imputations, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+# inner_join(facilities_imputations2, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+# inner_join(facilities_imputations3, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
+
+# inner_join(facilities_imputations4, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+#   summarize(mean(abs(value_imputation - value_truth), na.rm = TRUE), .by = "geo_value")
 
 imps_list <- list(
   imp1 = facilities_imputations,
@@ -730,18 +732,29 @@ imps_list <- list(
   imp4 = facilities_imputations4
 )
 
+# FIXME NAs in imputations....
+
 library(tidyr)
 
 imps_bound <-
   imps_list %>%
-  bind_rows(.id = "model")
-
-imps_joined <-
-  imps_list %>%
   bind_rows(.id = "model") %>%
-  pivot_wider(id_cols = c("version", "geo_value", "time_value"),
-              names_from = c("model"),
-              values_from = value)
+  filter(!is.na(value)) %>%
+  group_by(version, geo_value, time_value) %>%
+  filter(n() == length(imps_list)) %>%
+  ungroup()
+
+inner_join(imps_bound, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(.by = model,
+            MAE = mean(abs(value_imputation - value_truth), na.rm = TRUE),
+            P80AE = quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+# imps_joined <-
+#   imps_list %>%
+#   bind_rows(.id = "model") %>%
+#   pivot_wider(id_cols = c("version", "geo_value", "time_value"),
+#               names_from = c("model"),
+#               values_from = value)
 
 imp_sd_norms <-
   imps_bound %>%
