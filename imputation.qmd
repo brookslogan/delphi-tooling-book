@@ -23,6 +23,8 @@ apply_lag_linear_combination = function(edf, lag_linear_combination, ref_time_va
 
 dt -1:-2
 coef 0.5 0.5
+#
+# TODO consider by county... except some even morecounty or county groups?
 ... not for the neighbor imputation which crosses counties... plus treating all these different imputations as same in geo pooling doesn't sound right
 
 
@@ -45,8 +47,6 @@ library(epiprocess)
 # analysis_date <- as.Date("2023-01-03")
 analysis_date <- as.Date("2024-01-11")
 stable_as_of_date <- analysis_date - 2L
-
-# FIXME multiple folds?
 
 ca_facilities_tbl <- pub_covid_hosp_facility_lookup(state = "ca")
 
@@ -277,7 +277,6 @@ cache <- cachem::cache_disk(dir = "imputation_facility_cache", max_size = 1 * 10
 # when querying on publication dates with no publication), so we'll use them for
 # everything.
 
-
 publication_dates <- seq(start_publication_date, end_publication_date, by="day")
 chunks <- publication_dates %>%
   lapply(function(publication_date) {
@@ -315,6 +314,11 @@ archive <- chunks %>%
   mutate(value = case_match(value, -999999 ~ 2, .default = value)) %>%
   as_epi_archive(compactify = TRUE)
 
+prototyping_versions <- publication_dates[
+  publication_dates >= publication_dates[[1L]] + 26L*7L &
+  seq_along(publication_dates) <= as.integer(0.7*length(publication_dates)) + 1L
+] %>%
+  `[`(as.POSIXlt(.)$wday == 3L)
 
 selected_facilities <-
   withr::with_rng_version("3.5.0", {
@@ -540,11 +544,16 @@ imputations_via_crossgeo <- function(edf, locf_for_up_to) {
   facility_props <-
     edf %>%
     filter(
-      max_unique_time_value - locf_for_up_to - 28L <= time_value,
+      # max_unique_time_value - locf_for_up_to - 28L <= time_value,
+      max_unique_time_value - locf_for_up_to - 7L*25L <= time_value,
+      # # FIXME probably need this longer averaging but to be more reactive to
+      # # drop-out?... and deal with NAs..
       time_value <= max_unique_time_value - locf_for_up_to
     ) %>%
     # TODO consider filtering to same wday
-    summarize(.by = geo_value, value = sum(value)) %>%
+    #
+    # TODO consider by county or county groups?
+    summarize(.by = geo_value, value = sum(value, na.rm = TRUE)) %>%
     mutate(facility_prop = value / sum(value),
            value = NULL)
   ca_estimates <- edf %>%
@@ -566,6 +575,38 @@ imputations_via_crossgeo <- function(edf, locf_for_up_to) {
   # TODO remove some columns
   imputed_rows
 }
+
+# imputations_via_last_obs_fixup <- function(partial_archive, locf_for_up_to) {
+#   latest_edf <- partial_archive %>% epix_as_of(.$versions_end)
+#   unique_time_values <- unique(latest_edf$time_value)
+#   geo_latencies <-
+#     latest_edf %>%
+#     summarize(.by = geo_value, max_time_value = max(time_value)) %>%
+#     mutate(min_version_lag = as.integer(partial_archive$versions_end - max_time_value))
+#   # TODO consider an average of multiple lags rather than just a single
+#   # observation, which might be noisy
+#   analogues <- partial_archive %>%
+#     epix_slide(
+#       ref_time_values = sort(unique(partial_archive$DT$version)) %>%
+#         `[`(as.POSIXlt(.)$wday == as.POSIXlt(tail(., 1L))$wday),
+#       before = max(geo_latencies$min_version_lag),
+#       function(edf, gk, version) {
+#         geo_latencies %>%
+#           transmute(geo_value, time_value = .env$version - min_version_lag) %>%
+#           left_join(edf, by = c("geo_value", "time_value")) %>%
+#           select(geo_value, last_obs_analogue = value)
+#       }, names_sep = NULL
+#     )
+#   # browser()
+#   stop('fixme alignment time_value vs. version, plus the target specification')
+#   # latest_edf %>%
+#   #   left_join(analogues, by = c("geo_value", "time_value")) %>%
+#   latest_edf %>%
+#     left_join(analogues, by = c("geo_value", "time_value")) %>%
+#     slice_max(time_value, by = geo_value) %>%
+#     select(geo_value, time_value, value, last_obs_analogue)
+# }
+
 
 # imputations_via_crossgeo2 <- function(edf, locf_for_up_to) {
 #   unique_time_values <- unique(edf$time_value)
@@ -611,35 +652,69 @@ archive %>%
 
 facilities_imputations <-
   archive %>%
-  epix_slide(before = 365000L, function(edf, gk, version) {
-    imputations_via_locf(edf, facility_locf_for_up_to)
-  }, as_list_col = TRUE) %>%
+  epix_slide(
+    ref_time_values = prototyping_versions,
+    before = 365000L,
+    function(edf, gk, version) {
+      imputations_via_locf(edf, facility_locf_for_up_to)
+    },
+    as_list_col = TRUE
+  ) %>%
   rename(version = time_value) %>%
   unnest(slide_value)
 
 facilities_imputations2 <-
   archive %>%
-  epix_slide(before = 365000L, function(edf, gk, version) {
-    imputations_via_slocf(edf, facility_locf_for_up_to)
-  }, as_list_col = TRUE) %>%
+  epix_slide(
+    ref_time_values = prototyping_versions,
+    before = 365000L,
+    function(edf, gk, version) {
+      imputations_via_slocf(edf, facility_locf_for_up_to)
+    },
+    as_list_col = TRUE
+  ) %>%
   rename(version = time_value) %>%
   unnest(slide_value)
 
 facilities_imputations3 <-
   archive %>%
-  epix_slide(before = 365000L, function(edf, gk, version) {
-    imputations_via_crossgeo(edf, facility_locf_for_up_to)
-  }, as_list_col = TRUE) %>%
+  epix_slide(
+    ref_time_values = prototyping_versions,
+    before = 365000L,
+    function(edf, gk, version) {
+      imputations_via_crossgeo(edf, facility_locf_for_up_to)
+    },
+    as_list_col = TRUE
+  ) %>%
   rename(version = time_value) %>%
   unnest(slide_value)
 
 facilities_imputations4 <-
   archive %>%
-  epix_slide(before = 365000L, function(edf, gk, version) {
-    imputations_via_3locf(edf, facility_locf_for_up_to)
-  }, as_list_col = TRUE) %>%
+  epix_slide(
+    ref_time_values = prototyping_versions,
+    before = 365000L,
+    function(edf, gk, version) {
+      imputations_via_3locf(edf, facility_locf_for_up_to)
+    },
+    as_list_col = TRUE
+  ) %>%
   rename(version = time_value) %>%
   unnest(slide_value)
+
+# facilities_imputations5 <-
+#   archive %>%
+#   epix_slide(
+#     ref_time_values = prototyping_versions,
+#     all_versions = TRUE,
+#     before = 365000L,
+#     function(partial_archive, gk, version) {
+#       imputations_via_last_obs_fixup(partial_archive, facility_locf_for_up_to)
+#     },
+#     as_list_col = TRUE
+#   ) %>%
+#   rename(version = time_value) %>%
+#   unnest(slide_value)
 
 # TODO something more versioning-aware than just trying a higher time lag?
 
@@ -747,7 +822,21 @@ imps_bound <-
 inner_join(imps_bound, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
   summarize(.by = model,
             MAE = mean(abs(value_imputation - value_truth), na.rm = TRUE),
+            MAEnormlzd = mean(abs(value_imputation - value_truth), na.rm = TRUE)/mean(value_truth)*100,
             P80AE = quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+facility_means <- facilities_truth_edf %>%
+  summarize(.by = geo_value, facility_mean = mean(value, na.rm = TRUE)) %>%
+  mutate(facility_mean_cat = cut(facility_mean, unique(quantile(facility_mean, (0:4)/4)), include.lowest = TRUE))
+
+inner_join(imps_bound, facilities_truth_edf, by = c("geo_value", "state", "fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  left_join(facility_means, by = "geo_value") %>%
+  summarize(.by = c(facility_mean_cat, model),
+            N = n(),
+            MAE = mean(abs(value_imputation - value_truth), na.rm = TRUE),
+            MAEnormlzd = mean(abs(value_imputation - value_truth), na.rm = TRUE)/mean(value_truth)*100,
+            P80AE = quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE)) %>%
+  arrange(facility_mean_cat, model)
 
 # imps_joined <-
 #   imps_list %>%
@@ -786,8 +875,78 @@ archive %>%
   right_join({.} %>% filter(time_value == display_pred$time_value) %>% distinct(geo_value), by = "geo_value") %>%
   summarize(value = sum(value), .by = time_value) %>%
   ggplot(aes(time_value, value)) %>%
-  `+`(geom_line())
+  `+`(geom_line()) %>%
+  `+`(geom_vline(linetype = "dotted", xintercept = display_pred$time_value))
+
+imps_list$imp3 %>%
+  right_join(display_pred)
 
 ```
 
 TODO revision-aware
+
+TODO extrapolation
+
+TODO scores by facility mean
+
+TODO weighted combination by proximity and volume
+
+
+
+County-level aggregation analysis
+```{r}
+counties_truth <- facilities_truth_edf %>%
+  summarize(.by = c(fips_code, time_value), value = sum(value))
+
+# No need to deal with NAs:
+counties_truth %>%
+  filter(is.na(value)) %>%
+  with(range(time_value))
+range(prototyping_versions)
+
+county_imps_list <- lapply(imps_list, function(facility_imp) {
+  epix_slide(
+    archive,
+    ref_time_values = prototyping_versions,
+    before = 365000L,
+    function(edf, gk, version) {
+      edf %>%
+        add_imputations(facility_imp) %>%
+        summarize(.by = c(fips_code, time_value), value = sum(value)) %>%
+        # only look at county x times that had some imputation going on
+        inner_join(distinct(facility_imp, fips_code, time_value),
+                   by = c("fips_code", "time_value"))
+    }, as_list_col = TRUE
+  ) %>%
+    rename(version = time_value) %>%
+    unnest(slide_value)
+})
+
+county_imps_bound <-
+  county_imps_list %>%
+  bind_rows(.id = "model") %>%
+  filter(!is.na(value)) %>%
+  group_by(version, fips_code, time_value) %>%
+  filter(n() == length(county_imps_list)) %>%
+  ungroup()
+
+county_means <- counties_truth %>%
+  summarize(.by = fips_code, county_mean = mean(value, na.rm = TRUE)) %>%
+  mutate(county_mean_cat = cut(county_mean, unique(quantile(county_mean, (0:4)/4)), include.lowest = TRUE))
+
+inner_join(county_imps_bound, counties_truth, by = c("fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  summarize(.by = model,
+            MAE = mean(abs(value_imputation - value_truth), na.rm = TRUE),
+            MAEnormlzd = mean(abs(value_imputation - value_truth), na.rm = TRUE)/mean(value_truth)*100,
+            P80AE = quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE))
+
+inner_join(county_imps_bound, counties_truth, by = c("fips_code", "time_value"), suffix = c("_imputation", "_truth")) %>%
+  left_join(county_means, by = "fips_code") %>%
+  summarize(.by = c(county_mean_cat, model),
+            N = n(),
+            MAE = mean(abs(value_imputation - value_truth), na.rm = TRUE),
+            MAEnormlzd = mean(abs(value_imputation - value_truth), na.rm = TRUE)/mean(value_truth)*100,
+            P80AE = quantile(abs(value_imputation - value_truth), 0.8, na.rm = TRUE)) %>%
+  arrange(county_mean_cat, model)
+
+```
