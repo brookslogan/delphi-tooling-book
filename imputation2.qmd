@@ -1,0 +1,75 @@
+
+
+```{r}
+# At time of writing, epidatr doesn't handle caching of hosp facility data, and
+# API doesn't have compactified issues. We'll do our own caching, and, to cut
+# down on downloading, pretend that things are finalized after 60 days, except
+# maybe to deal with the week redefinition.
+
+analysis_date <- as.Date("2024-01-29")
+stable_as_of <- analysis_date - 2L
+
+# At least at state level, more regular reporting started around version
+# 2021-09-21, with version 2021-09-21 a little different as well. So we'll start
+# with the following version:
+start_publication_date <- as.Date("2021-09-22")
+end_publication_date <- stable_as_of
+stopifnot(start_publication_date < end_publication_date)
+
+max_lag = 120L
+
+request_fields <- c(
+  "hospital_pk", "state", "fips_code", "collection_week", "publication_date",
+  "previous_day_admission_influenza_confirmed_7_day_sum" # no associated coverage stat?
+)
+
+cache <- cachem::cache_disk(dir = "imputation_facility_cache", max_size = 1 * 1024^3)
+# XXX is this facility-list-change-proof? not to removals, but maybe those won't happen
+
+# Normally to limit to versions >= some start version, we'd do an as_of query
+# for the start version and an issues query for the rest (for efficiency). But
+# for this endpoint, there are only sort of as_of queries (as_of queries except
+# when querying on publication dates with no publication), so we'll use them for
+# everything.
+
+
+ca_facilities_tbl <- pub_covid_hosp_facility_lookup(state = "ca")
+publication_dates <- seq(start_publication_date, end_publication_date, by="day")
+chunks <- publication_dates %>%
+  lapply(function(publication_date) {
+    print(publication_date)
+    cache_key <- format(publication_date, "publication_date_%Y%m%d")
+    cache_chunk <- cache$get(cache_key)
+    if (!cachem::is.key_missing(cache_chunk)) {
+      chunk <- cache_chunk
+    } else {
+      print(system.time(
+        chunk <-
+          pub_covid_hosp_facility(
+            hospital_pks = ca_facilities_tbl$hospital_pk,
+            collection_weeks = epirange(publication_date - max_lag, publication_date),
+            publication_dates = publication_date,
+            fetch_args = fetch_args_list(
+              fields = request_fields,
+              timeout_seconds = 30L
+            )
+          )
+      ))
+      cache$set(cache_key, chunk)
+    }
+    chunk
+  })
+
+archive <- chunks %>%
+  bind_rows() %>%
+  rename(geo_value = hospital_pk, time_value = collection_week, version = publication_date,
+         value = previous_day_admission_influenza_confirmed_7_day_sum) %>%
+  # NOTE we're pretending we don't have to deal with censoring by replacing
+  # -999999 with a fixed value (it appears to be a censoring of values in
+  # [1..3] or some mix of [1..3] and [0..3] rather than [0..3] suggested by
+  # docs; we'll replace it with 2, the average of [1..3])
+  mutate(value = case_match(value, -999999 ~ 2, .default = value)) %>%
+  as_epi_archive(compactify = TRUE)
+
+
+```
